@@ -9,9 +9,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from custom_components.proxmox_mail_gateway.api import (
+    PMGAccessForbiddenError,
     PMGAuthError,
     PMGConnectionError,
     PMGError,
+    PMGSSLError,
+    PMGTimeoutError,
 )
 from custom_components.proxmox_mail_gateway.config_flow import (
     PMGConfigFlow,
@@ -113,15 +116,64 @@ class TestConnectionHelper:
     """Tests for the _test_connection standalone function."""
 
     async def test_returns_none_on_success(self) -> None:
-        """_test_connection returns None when login succeeds."""
+        """_test_connection returns (None, '') when login & permissions succeed."""
         with patch("custom_components.proxmox_mail_gateway.config_flow.PMGApiClient") as mock_cls:
             mock_client = AsyncMock()
             mock_client.login = AsyncMock(return_value=None)
+            mock_client.get_spam_status = AsyncMock(return_value=MagicMock())
             mock_cls.return_value = mock_client
 
-            result = await _test_connection("host", 8006, "user@pmg", "pass", False, MagicMock())
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", False, MagicMock()
+            )
 
-        assert result is None
+        assert key is None
+        assert detail == ""
+
+    async def test_returns_ssl_error_on_pmg_ssl_error(self) -> None:
+        """PMGSSLError → 'ssl_error' error key."""
+        with patch("custom_components.proxmox_mail_gateway.config_flow.PMGApiClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.login = AsyncMock(side_effect=PMGSSLError("self signed cert"))
+            mock_cls.return_value = mock_client
+
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", True, MagicMock()
+            )
+
+        assert key == "ssl_error"
+        assert "self signed cert" in detail
+
+    async def test_returns_timeout_on_pmg_timeout(self) -> None:
+        """PMGTimeoutError → 'timeout_connect' error key."""
+        with patch("custom_components.proxmox_mail_gateway.config_flow.PMGApiClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.login = AsyncMock(side_effect=PMGTimeoutError("timed out 30s"))
+            mock_cls.return_value = mock_client
+
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", False, MagicMock()
+            )
+
+        assert key == "timeout_connect"
+        assert "timed out" in detail
+
+    async def test_returns_insufficient_permissions(self) -> None:
+        """PMGAccessForbiddenError → 'insufficient_permissions' error key."""
+        with patch("custom_components.proxmox_mail_gateway.config_flow.PMGApiClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.login = AsyncMock(return_value=None)
+            mock_client.get_spam_status = AsyncMock(
+                side_effect=PMGAccessForbiddenError("HTTP 403 Forbidden")
+            )
+            mock_cls.return_value = mock_client
+
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", False, MagicMock()
+            )
+
+        assert key == "insufficient_permissions"
+        assert "403" in detail
 
     async def test_returns_invalid_auth_on_pmg_auth_error(self) -> None:
         """PMGAuthError → 'invalid_auth' error key."""
@@ -130,9 +182,12 @@ class TestConnectionHelper:
             mock_client.login = AsyncMock(side_effect=PMGAuthError("bad creds"))
             mock_cls.return_value = mock_client
 
-            result = await _test_connection("host", 8006, "user@pmg", "wrong", False, MagicMock())
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "wrong", False, MagicMock()
+            )
 
-        assert result == "invalid_auth"
+        assert key == "invalid_auth"
+        assert "bad creds" in detail
 
     async def test_returns_cannot_connect_on_connection_error(self) -> None:
         """PMGConnectionError → 'cannot_connect' error key."""
@@ -141,9 +196,12 @@ class TestConnectionHelper:
             mock_client.login = AsyncMock(side_effect=PMGConnectionError("unreachable"))
             mock_cls.return_value = mock_client
 
-            result = await _test_connection("host", 8006, "user@pmg", "pass", False, MagicMock())
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", False, MagicMock()
+            )
 
-        assert result == "cannot_connect"
+        assert key == "cannot_connect"
+        assert "unreachable" in detail
 
     async def test_returns_unknown_on_other_pmg_error(self) -> None:
         """Generic PMGError → 'unknown' error key."""
@@ -152,9 +210,12 @@ class TestConnectionHelper:
             mock_client.login = AsyncMock(side_effect=PMGError("weird error"))
             mock_cls.return_value = mock_client
 
-            result = await _test_connection("host", 8006, "user@pmg", "pass", False, MagicMock())
+            key, detail = await _test_connection(
+                "host", 8006, "user@pmg", "pass", False, MagicMock()
+            )
 
-        assert result == "unknown"
+        assert key == "unknown"
+        assert "weird error" in detail
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -180,7 +241,7 @@ class TestConfigFlowStepUser:
         with (
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow._test_connection",
-                AsyncMock(return_value=None),
+                AsyncMock(return_value=(None, "")),
             ),
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
@@ -201,7 +262,7 @@ class TestConfigFlowStepUser:
         with (
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow._test_connection",
-                AsyncMock(return_value="invalid_auth"),
+                AsyncMock(return_value=("invalid_auth", "bad pass")),
             ),
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
@@ -220,7 +281,7 @@ class TestConfigFlowStepUser:
         with (
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow._test_connection",
-                AsyncMock(return_value="cannot_connect"),
+                AsyncMock(return_value=("cannot_connect", "connection refused")),
             ),
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
@@ -240,7 +301,7 @@ class TestConfigFlowStepUser:
         with (
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow._test_connection",
-                AsyncMock(return_value=None),
+                AsyncMock(return_value=(None, "")),
             ),
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
@@ -292,7 +353,7 @@ class TestReauthFlow:
         with (
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow._test_connection",
-                AsyncMock(return_value=None),
+                AsyncMock(return_value=(None, "")),
             ),
             patch(
                 "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
@@ -345,6 +406,39 @@ class TestOptionsFlow:
 
         assert result["type"] == "create_entry"
         assert result["data"][CONF_SCAN_INTERVAL] == 120
+
+    async def test_options_flow_shows_error_when_connection_fails(self) -> None:
+        """When connection parameters change and test fails, form shows error."""
+        entry = _make_entry()
+        flow = PMGOptionsFlow(entry)
+        flow.hass = _make_hass()
+
+        options_payload = {
+            CONF_HOST: "192.168.222.99",
+            CONF_PORT: 8006,
+            CONF_USERNAME: "homeassistant@pmg",
+            CONF_PASSWORD: "new_password",
+            CONF_SCAN_INTERVAL: 60,
+            CONF_VERIFY_SSL: False,
+            CONF_ENABLE_POSTFIX_SENSORS: True,
+            CONF_ENABLE_NODE_SENSORS: True,
+        }
+
+        with (
+            patch(
+                "custom_components.proxmox_mail_gateway.config_flow._test_connection",
+                AsyncMock(return_value=("cannot_connect", "Host unreachable")),
+            ),
+            patch(
+                "custom_components.proxmox_mail_gateway.config_flow.async_get_clientsession",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = await flow.async_step_init(user_input=options_payload)
+
+        assert result["type"] == "form"
+        assert result["errors"]["base"] == "cannot_connect"
+        assert result.get("description_placeholders", {}).get("error_detail") == "Host unreachable"
 
     async def test_options_flow_accessible_via_config_flow(self) -> None:
         """PMGConfigFlow.async_get_options_flow returns a PMGOptionsFlow."""

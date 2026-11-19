@@ -28,9 +28,13 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to PMG. Check the host, port, and network connectivity.",
-      "invalid_auth": "Invalid credentials. Verify the username and password.",
-      "unknown": "An unexpected error occurred. Check the HA logs for details."
+      "cannot_connect": "Unable to connect to PMG: {error_detail}. Check the host, port, and network connectivity.",
+      "invalid_auth": "Invalid credentials: {error_detail}. Verify username, realm (@pam or @pmg), and password.",
+      "insufficient_permissions": "Insufficient permissions: {error_detail}. The user cannot access quarantine (/quarantine). Assign an appropriate role in PMG.",
+      "ssl_error": "SSL certificate verification failed: {error_detail}. Disable 'Verify TLS certificate' if PMG uses a self-signed certificate.",
+      "timeout_connect": "Connection to PMG timed out: {error_detail}. Verify that host IP and port 8006 are reachable.",
+      "server_error": "PMG internal server error: {error_detail}. Check pve-api-daemon service on PMG.",
+      "unknown": "An unexpected error occurred: {error_detail}. Check the HA logs for details."
     },
     "abort": {
       "already_configured": "This PMG instance is already configured.",
@@ -59,6 +63,15 @@
           "enable_node_sensors": "Creates a sensor for the PMG node's CPU utilisation."
         }
       }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to PMG: {error_detail}. Check the host, port, and network connectivity.",
+      "invalid_auth": "Invalid credentials: {error_detail}. Verify username, realm (@pam or @pmg), and password.",
+      "insufficient_permissions": "Insufficient permissions: {error_detail}. The user cannot access quarantine (/quarantine). Assign an appropriate role in PMG.",
+      "ssl_error": "SSL certificate verification failed: {error_detail}. Disable 'Verify TLS certificate' if PMG uses a self-signed certificate.",
+      "timeout_connect": "Connection to PMG timed out: {error_detail}. Verify that host IP and port 8006 are reachable.",
+      "server_error": "PMG internal server error: {error_detail}. Check pve-api-daemon service on PMG.",
+      "unknown": "An unexpected error occurred: {error_detail}. Check the HA logs for details."
     }
   },
   "entity": {

@@ -108,11 +108,12 @@ class PMGDataUpdateCoordinator(DataUpdateCoordinator[PMGData]):
                     _LOGGER.debug("Node status fetch skipped: %s", type(exc).__name__)
 
         except PMGAuthError as exc:
+            _LOGGER.error("PMG authentication/authorization failure: %s", exc)
             raise ConfigEntryAuthFailed(
-                "Proxmox Mail Gateway rejected credentials. "
-                "Please update them in the integration settings."
+                f"Proxmox Mail Gateway odrzucił poświadczenia lub brak uprawnień: {exc}"
             ) from exc
         except PMGError as exc:
+            _LOGGER.error("PMG update failed: %s", exc)
             raise UpdateFailed(f"PMG data fetch failed: {exc}") from exc
 
         # ── Event detection: fire events only for NEW messages ────────────────

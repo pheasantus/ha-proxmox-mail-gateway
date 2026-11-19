@@ -17,7 +17,16 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import PMGApiClient, PMGAuthError, PMGConnectionError, PMGError
+from .api import (
+    PMGAccessForbiddenError,
+    PMGApiClient,
+    PMGAuthError,
+    PMGConnectionError,
+    PMGError,
+    PMGServerError,
+    PMGSSLError,
+    PMGTimeoutError,
+)
 from .const import (
     CONF_ENABLE_NODE_SENSORS,
     CONF_ENABLE_POSTFIX_SENSORS,
@@ -86,8 +95,8 @@ async def _test_connection(
     password: str,
     verify_ssl: bool,
     session: Any,
-) -> str | None:
-    """Attempt a PMG login and return an error key on failure, or ``None`` on success."""
+) -> tuple[str | None, str]:
+    """Attempt a PMG login & permission check, returning (error_key, error_detail)."""
     client = PMGApiClient(
         host=host,
         port=port,
@@ -98,21 +107,34 @@ async def _test_connection(
     )
     try:
         await client.login()
+        await client.get_spam_status()
+    except PMGSSLError as exc:
+        _LOGGER.error("PMG SSL verification error for %s:%s: %s", host, port, exc)
+        return "ssl_error", str(exc)
+    except PMGTimeoutError as exc:
+        _LOGGER.error("PMG connection timed out to %s:%s: %s", host, port, exc)
+        return "timeout_connect", str(exc)
+    except PMGAccessForbiddenError as exc:
+        _LOGGER.error("PMG permission denied for user '%s': %s", username, exc)
+        return "insufficient_permissions", str(exc)
     except PMGAuthError as exc:
-        _LOGGER.warning("PMG authentication failed for user '%s': %s", username, exc)
-        return "invalid_auth"
+        _LOGGER.error("PMG authentication rejected for user '%s': %s", username, exc)
+        return "invalid_auth", str(exc)
+    except PMGServerError as exc:
+        _LOGGER.error("PMG server error on %s:%s: %s", host, port, exc)
+        return "server_error", str(exc)
     except PMGConnectionError as exc:
-        _LOGGER.warning(
+        _LOGGER.error(
             "PMG connection failed to %s:%s (verify_ssl=%s): %s", host, port, verify_ssl, exc
         )
-        return "cannot_connect"
+        return "cannot_connect", str(exc)
     except PMGError as exc:
-        _LOGGER.warning("PMG error during connection test: %s", exc)
-        return "unknown"
+        _LOGGER.error("PMG error during connection test: %s", exc)
+        return "unknown", str(exc)
     except Exception as exc:
         _LOGGER.exception("PMG unexpected exception during connection test: %s", exc)
-        return "unknown"
-    return None
+        return "unknown", str(exc)
+    return None, ""
 
 
 class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -143,7 +165,9 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
-            error_key = await _test_connection(host, port, username, password, verify_ssl, session)
+            error_key, error_detail = await _test_connection(
+                host, port, username, password, verify_ssl, session
+            )
 
             if error_key is None:
                 _LOGGER.info(
@@ -160,6 +184,12 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
                     },
                 )
             errors["base"] = error_key
+            return self.async_show_form(
+                step_id=STEP_USER,
+                data_schema=_USER_SCHEMA,
+                errors=errors,
+                description_placeholders={"error_detail": error_detail},
+            )
 
         return self.async_show_form(
             step_id=STEP_USER,
@@ -201,7 +231,7 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
             session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
-            error_key = await _test_connection(
+            error_key, error_detail = await _test_connection(
                 host=host,
                 port=port,
                 username=username,
@@ -223,6 +253,23 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reauth_successful")
             errors["base"] = error_key
+            reauth_schema = vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=host): str,
+                    vol.Required(CONF_PORT, default=port): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=65535)
+                    ),
+                    vol.Required(CONF_USERNAME, default=username): str,
+                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(CONF_VERIFY_SSL, default=verify_ssl): bool,
+                }
+            )
+            return self.async_show_form(
+                step_id=STEP_REAUTH,
+                data_schema=reauth_schema,
+                errors=errors,
+                description_placeholders={"error_detail": error_detail},
+            )
 
         reauth_schema = vol.Schema(
             {
@@ -299,7 +346,7 @@ class PMGOptionsFlow(OptionsFlow):
 
             if conn_changed:
                 session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
-                error_key = await _test_connection(
+                error_key, error_detail = await _test_connection(
                     host=host,
                     port=port,
                     username=username,
@@ -309,16 +356,57 @@ class PMGOptionsFlow(OptionsFlow):
                 )
                 if error_key is not None:
                     errors["base"] = error_key
-                else:
-                    new_data = {
-                        **current_data,
-                        CONF_HOST: host,
-                        CONF_PORT: port,
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_VERIFY_SSL: verify_ssl,
-                    }
-                    self.hass.config_entries.async_update_entry(entry, data=new_data)
+                    schema = vol.Schema(
+                        {
+                            vol.Required(CONF_HOST, default=host): str,
+                            vol.Required(CONF_PORT, default=port): vol.All(
+                                vol.Coerce(int), vol.Range(min=1, max=65535)
+                            ),
+                            vol.Required(CONF_USERNAME, default=username): str,
+                            vol.Optional(CONF_PASSWORD, default=""): str,
+                            vol.Optional(CONF_VERIFY_SSL, default=verify_ssl): bool,
+                            vol.Optional(
+                                CONF_SCAN_INTERVAL,
+                                default=user_input.get(
+                                    CONF_SCAN_INTERVAL,
+                                    current_opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                                ),
+                            ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                            vol.Optional(
+                                CONF_ENABLE_POSTFIX_SENSORS,
+                                default=user_input.get(
+                                    CONF_ENABLE_POSTFIX_SENSORS,
+                                    current_opts.get(
+                                        CONF_ENABLE_POSTFIX_SENSORS, DEFAULT_ENABLE_POSTFIX_SENSORS
+                                    ),
+                                ),
+                            ): bool,
+                            vol.Optional(
+                                CONF_ENABLE_NODE_SENSORS,
+                                default=user_input.get(
+                                    CONF_ENABLE_NODE_SENSORS,
+                                    current_opts.get(
+                                        CONF_ENABLE_NODE_SENSORS, DEFAULT_ENABLE_NODE_SENSORS
+                                    ),
+                                ),
+                            ): bool,
+                        }
+                    )
+                    return self.async_show_form(
+                        step_id="init",
+                        data_schema=schema,
+                        errors=errors,
+                        description_placeholders={"error_detail": error_detail},
+                    )
+                new_data = {
+                    **current_data,
+                    CONF_HOST: host,
+                    CONF_PORT: port,
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                    CONF_VERIFY_SSL: verify_ssl,
+                }
+                self.hass.config_entries.async_update_entry(entry, data=new_data)
 
             if not errors:
                 options_data = {

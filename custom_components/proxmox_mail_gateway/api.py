@@ -60,8 +60,20 @@ class PMGAuthError(PMGError):
     """Raised on authentication failure (401, 403, bad credentials)."""
 
 
+class PMGAccessForbiddenError(PMGAuthError):
+    """Raised when access is forbidden due to lack of permissions (HTTP 403)."""
+
+
 class PMGConnectionError(PMGError):
     """Raised when the PMG host is unreachable or times out."""
+
+
+class PMGSSLError(PMGConnectionError):
+    """Raised when SSL/TLS certificate verification fails."""
+
+
+class PMGTimeoutError(PMGConnectionError):
+    """Raised when a request to PMG times out."""
 
 
 class PMGRateLimitError(PMGError):
@@ -166,26 +178,38 @@ class PMGApiClient:
                 timeout=timeout,
             ) as resp:
                 if resp.status in (401, 403):
-                    raise PMGAuthError(
-                        f"PMG rejected credentials for user '{self._username}' (HTTP {resp.status})"
-                    )
+                    msg = ""
+                    try:
+                        err_json = await resp.json(content_type=None)
+                        if isinstance(err_json, dict) and err_json.get("message"):
+                            msg = str(err_json["message"]).strip()
+                    except Exception as exc:
+                        _LOGGER.debug("Could not parse PMG error JSON: %s", exc)
+                    detail = f": {msg}" if msg else ""
+                    if resp.status == 403:
+                        raise PMGAccessForbiddenError(
+                            f"HTTP 403 Forbidden dla '{self._username}'{detail}"
+                        )
+                    raise PMGAuthError(f"HTTP 401 Unauthorized dla '{self._username}'{detail}")
                 if resp.status >= 500:
-                    raise PMGServerError(f"PMG server error during login: HTTP {resp.status}")
+                    raise PMGServerError(f"Błąd serwera PMG (HTTP {resp.status})")
                 try:
                     body: dict[str, Any] = await resp.json(content_type=None)
                 except Exception as exc:
                     raise PMGServerError("Invalid JSON in login response") from exc
 
         except aiohttp.ClientConnectorCertificateError as exc:
-            raise PMGConnectionError(
-                f"SSL certificate validation failed for {self._base_url}. "
-                "Disable 'Verify SSL' in integration settings if using a self-signed certificate."
+            raise PMGSSLError(
+                f"Błąd weryfikacji certyfikatu SSL ({exc}). "
+                "Odznacz 'Weryfikuj certyfikat SSL', jeśli PMG używa certyfikatu self-signed."
+            ) from exc
+        except (TimeoutError, aiohttp.ServerTimeoutError) as exc:
+            raise PMGTimeoutError(
+                f"Przekroczono limit czasu połączenia z {self._base_url} ({self._timeout}s)"
             ) from exc
         except aiohttp.ClientConnectorError as exc:
-            raise PMGConnectionError(f"Cannot connect to PMG at {self._base_url}: {exc}") from exc
-        except (TimeoutError, aiohttp.ServerTimeoutError) as exc:
             raise PMGConnectionError(
-                f"PMG login request to {self._base_url} timed out ({self._timeout}s)"
+                f"Nie można nawiązać połączenia z {self._base_url}: {exc}"
             ) from exc
 
         payload: dict[str, Any] = body.get("data") or {}
@@ -285,31 +309,34 @@ class PMGApiClient:
                     )
 
                 if resp.status == 403:
-                    raise PMGAuthError(
-                        f"PMG denied access to {path} (HTTP 403). "
-                        "Verify the PMG account has the 'qmanager' role."
+                    raise PMGAccessForbiddenError(
+                        f"Brak uprawnień (HTTP 403) do {path}. "
+                        "Upewnij się, że użytkownik w PMG ma uprawnienia do kwarantanny."
                     )
                 if resp.status == 429:
                     raise PMGRateLimitError(
-                        "PMG rate-limited this client (HTTP 429). "
-                        "Consider increasing the scan interval."
+                        "PMG ograniczył liczbę zapytań (HTTP 429 Too Many Requests)."
                     )
                 if resp.status >= 500:
-                    raise PMGServerError(f"PMG internal server error: HTTP {resp.status}")
+                    raise PMGServerError(f"Błąd wewnętrzny serwera PMG: HTTP {resp.status}")
 
                 resp.raise_for_status()
 
                 try:
                     body: dict[str, Any] = await resp.json(content_type=None)
                 except Exception as exc:
-                    raise PMGServerError(f"PMG returned non-JSON response for {path}") from exc
+                    raise PMGServerError(f"PMG zwrócił odpowiedź inną niż JSON dla {path}") from exc
 
                 return body.get("data")
 
-        except aiohttp.ClientConnectorError as exc:
-            raise PMGConnectionError(f"Cannot reach PMG at {url}: {exc}") from exc
+        except aiohttp.ClientConnectorCertificateError as exc:
+            raise PMGSSLError(f"Błąd certyfikatu SSL dla {url}: {exc}") from exc
         except (TimeoutError, aiohttp.ServerTimeoutError) as exc:
-            raise PMGConnectionError(f"Request to PMG timed out: {method} {path}") from exc
+            raise PMGTimeoutError(
+                f"Zapytanie do PMG przekroczyło limit czasu: {method} {path}"
+            ) from exc
+        except aiohttp.ClientConnectorError as exc:
+            raise PMGConnectionError(f"Brak łączności z PMG ({url}): {exc}") from exc
 
     # ── Quarantine queries ────────────────────────────────────────────────────
 

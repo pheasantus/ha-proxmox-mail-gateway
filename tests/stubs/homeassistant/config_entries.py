@@ -90,6 +90,7 @@ class ConfigFlow:
             "step_id": step_id,
             "errors": errors or {},
             "data_schema": data_schema,
+            "description_placeholders": description_placeholders or {},
         }
 
     def async_abort(self, reason: str) -> FlowResult:
@@ -115,12 +116,14 @@ class OptionsFlow:
         step_id: str,
         data_schema: Any = None,
         errors: dict[str, str] | None = None,
+        description_placeholders: dict[str, str] | None = None,
     ) -> FlowResult:
         return {
             "type": "form",
             "step_id": step_id,
             "errors": errors or {},
             "data_schema": data_schema,
+            "description_placeholders": description_placeholders or {},
         }
 
     def async_abort(self, reason: str) -> FlowResult:

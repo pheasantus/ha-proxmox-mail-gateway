@@ -28,9 +28,13 @@
       }
     },
     "error": {
-      "cannot_connect": "Nie można połączyć się z PMG. Sprawdź host, port i łączność sieciową.",
-      "invalid_auth": "Nieprawidłowe dane logowania. Sprawdź nazwę użytkownika i hasło.",
-      "unknown": "Wystąpił nieoczekiwany błąd. Sprawdź logi HA."
+      "cannot_connect": "Nie można połączyć się z PMG: {error_detail}. Sprawdź adres IP, port 8006 oraz zaporę sieciową.",
+      "invalid_auth": "Błąd uwierzytelnienia: {error_detail}. Sprawdź nazwę użytkownika, realm (np. root@pam lub user@pmg) oraz hasło.",
+      "insufficient_permissions": "Brak uprawnień w PMG: {error_detail}. Użytkownik nie ma uprawnień do odczytu kwarantanny (/quarantine). Nadaj użytkownikowi odpowiednią rolę w PMG.",
+      "ssl_error": "Błąd weryfikacji certyfikatu SSL: {error_detail}. Odznacz opcję 'Weryfikuj certyfikat TLS', jeśli PMG używa certyfikatu self-signed.",
+      "timeout_connect": "Przekroczono limit czasu oczekiwania na odpowiedź PMG: {error_detail}. Sprawdź, czy host i port 8006 są osiągalne.",
+      "server_error": "Błąd wewnętrzny serwera PMG: {error_detail}. Sprawdź status usługi pve-api-daemon na serwerze PMG.",
+      "unknown": "Nieoczekiwany błąd: {error_detail}. Sprawdź szczegółowe logi Home Assistant."
     },
     "abort": {
       "already_configured": "Ta instancja PMG jest już skonfigurowana.",
@@ -59,6 +63,15 @@
           "enable_node_sensors": "Tworzy sensor dla użycia CPU węzła PMG."
         }
       }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z PMG: {error_detail}. Sprawdź adres IP, port 8006 oraz zaporę sieciową.",
+      "invalid_auth": "Błąd uwierzytelnienia: {error_detail}. Sprawdź nazwę użytkownika, realm (np. root@pam lub user@pmg) oraz hasło.",
+      "insufficient_permissions": "Brak uprawnień w PMG: {error_detail}. Użytkownik nie ma uprawnień do odczytu kwarantanny (/quarantine). Nadaj użytkownikowi odpowiednią rolę w PMG.",
+      "ssl_error": "Błąd weryfikacji certyfikatu SSL: {error_detail}. Odznacz opcję 'Weryfikuj certyfikat TLS', jeśli PMG używa certyfikatu self-signed.",
+      "timeout_connect": "Przekroczono limit czasu oczekiwania na odpowiedź PMG: {error_detail}. Sprawdź, czy host i port 8006 są osiągalne.",
+      "server_error": "Błąd wewnętrzny serwera PMG: {error_detail}. Sprawdź status usługi pve-api-daemon na serwerze PMG.",
+      "unknown": "Nieoczekiwany błąd: {error_detail}. Sprawdź szczegółowe logi Home Assistant."
     }
   },
   "entity": {
