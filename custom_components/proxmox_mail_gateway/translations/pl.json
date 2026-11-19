@@ -17,9 +17,13 @@
       },
       "reauth_confirm": {
         "title": "Ponowne uwierzytelnienie z Proxmox Mail Gateway",
-        "description": "Integracja PMG wymaga hasła do ponownego uwierzytelnienia.",
+        "description": "Zaktualizuj parametry połączenia lub wprowadź nowe hasło do instancji PMG.",
         "data": {
-          "password": "Hasło"
+          "host": "Host lub adres IP",
+          "port": "Port API",
+          "username": "Nazwa użytkownika (np. homeassistant@pmg)",
+          "password": "Hasło",
+          "verify_ssl": "Weryfikuj certyfikat TLS"
         }
       }
     },
@@ -36,14 +40,20 @@
   "options": {
     "step": {
       "init": {
-        "title": "Opcje Proxmox Mail Gateway",
+        "title": "Opcje i parametry Proxmox Mail Gateway",
+        "description": "Dostosuj parametry połączenia oraz konfigurację sensorów.",
         "data": {
-          "scan_interval": "Interwał odświeżania (sekundy)",
+          "host": "Host lub adres IP",
+          "port": "Port API",
+          "username": "Nazwa użytkownika",
+          "password": "Hasło (pozostaw puste aby nie zmieniać)",
           "verify_ssl": "Weryfikuj certyfikat TLS",
+          "scan_interval": "Interwał odświeżania (sekundy)",
           "enable_postfix_sensors": "Włącz sensory kolejek Postfix",
           "enable_node_sensors": "Włącz sensory metryk węzła (CPU, pamięć)"
         },
         "data_description": {
+          "password": "Wprowadź nowe hasło tylko jeśli chcesz je zaktualizować.",
           "scan_interval": "Jak często odpytywać PMG o nowe dane kwarantanny. Minimum: 10 s, maksimum: 3600 s.",
           "enable_postfix_sensors": "Tworzy sensory dla aktywnych, odroczonych i przychodzących kolejek Postfix.",
           "enable_node_sensors": "Tworzy sensor dla użycia CPU węzła PMG."

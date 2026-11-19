@@ -68,6 +68,9 @@ class _ServiceRegistry:
     def has_service(self, domain: str, service: str) -> bool:
         return (domain, service) in self._services
 
+    def async_remove(self, domain: str, service: str) -> None:
+        self._services.pop((domain, service), None)
+
     async def async_call(self, domain: str, service: str, data: dict | None = None) -> None:
         handler = self._services.get((domain, service))
         if handler is None:
@@ -86,4 +89,6 @@ class HomeAssistant:
         self.config_entries.async_forward_entry_setups = AsyncMock(return_value=None)
         self.config_entries.async_unload_platforms = AsyncMock(return_value=True)
         self.config_entries.async_reload = AsyncMock(return_value=None)
+        self.config_entries.async_update_entry = MagicMock()
+        self.config_entries.async_get_entry = MagicMock()
         self.loop = MagicMock()

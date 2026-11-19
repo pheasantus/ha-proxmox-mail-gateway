@@ -124,13 +124,13 @@ class PMGQuarantineCountSensor(PMGBaseSensor):
     @property
     def icon(self) -> str:
         """Return a filled alert icon when messages are present, outline otherwise."""
-        count = self.coordinator.data.status.count if self.coordinator.data else 0
+        count = self.native_value
         return "mdi:email-alert" if count > 0 else "mdi:email-alert-outline"
 
     @property
     def native_value(self) -> int:
         """Return the total quarantined message count."""
-        if not self.coordinator.data:
+        if not self.coordinator.data or not self.coordinator.data.status:
             return 0
         return self.coordinator.data.status.count
 

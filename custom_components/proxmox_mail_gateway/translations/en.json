@@ -17,9 +17,13 @@
       },
       "reauth_confirm": {
         "title": "Re-authenticate with Proxmox Mail Gateway",
-        "description": "The PMG integration needs your password to re-authenticate.",
+        "description": "Update connection details and enter your password to re-authenticate with PMG.",
         "data": {
-          "password": "Password"
+          "host": "Host or IP address",
+          "port": "API port",
+          "username": "Username (e.g. homeassistant@pmg)",
+          "password": "Password",
+          "verify_ssl": "Verify TLS certificate"
         }
       }
     },
@@ -37,13 +41,19 @@
     "step": {
       "init": {
         "title": "Proxmox Mail Gateway Options",
+        "description": "Adjust connection parameters and sensor settings.",
         "data": {
-          "scan_interval": "Scan interval (seconds)",
+          "host": "Host or IP address",
+          "port": "API port",
+          "username": "Username",
+          "password": "Password (leave empty to keep current)",
           "verify_ssl": "Verify TLS certificate",
+          "scan_interval": "Scan interval (seconds)",
           "enable_postfix_sensors": "Enable Postfix queue sensors",
           "enable_node_sensors": "Enable node metrics sensors (CPU, memory)"
         },
         "data_description": {
+          "password": "Only enter a new password if you wish to change it.",
           "scan_interval": "How often to poll PMG for new quarantine data. Minimum: 10 s, maximum: 3600 s.",
           "enable_postfix_sensors": "Creates sensors for active, deferred, and incoming Postfix queue depths.",
           "enable_node_sensors": "Creates a sensor for the PMG node's CPU utilisation."

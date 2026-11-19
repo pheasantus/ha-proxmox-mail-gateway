@@ -43,7 +43,7 @@ API_POSTFIX_QUEUE_PATH = "/nodes/proxmox-mail-gateway/postfix/queue"
 # ── Session / ticket lifecycle ────────────────────────────────────────────────
 # PMG tickets are valid for 7200 s (2 h). We renew 200 s early for safety.
 TICKET_VALIDITY_SECONDS: int = 7000
-REQUEST_TIMEOUT_SECONDS: int = 15
+REQUEST_TIMEOUT_SECONDS: int = 30
 
 # ── Input sanitization limits ─────────────────────────────────────────────────
 MAX_SUBJECT_LENGTH: int = 500

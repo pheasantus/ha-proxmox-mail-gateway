@@ -106,8 +106,19 @@ class PMGApiClient:
         session: aiohttp.ClientSession,
         timeout: int = REQUEST_TIMEOUT_SECONDS,
     ) -> None:
-        self._base_url = f"https://{host}:{port}{API_PATH_PREFIX}"
-        self._username = username
+        clean_host = host.strip().removeprefix("https://").removeprefix("http://").rstrip("/")
+        if ":" in clean_host:
+            host_part, _, port_part = clean_host.partition(":")
+            clean_host = host_part
+            if port_part.isdigit():
+                port = int(port_part)
+        self._base_url = f"https://{clean_host}:{port}{API_PATH_PREFIX}"
+
+        user = username.strip()
+        if "@" not in user:
+            self._username = f"{user}@pam" if user == "root" else f"{user}@pmg"
+        else:
+            self._username = user
         # Password is stored only in memory, never referenced outside login().
         self._password = password
         self._ssl: bool = verify_ssl
@@ -165,10 +176,17 @@ class PMGApiClient:
                 except Exception as exc:
                     raise PMGServerError("Invalid JSON in login response") from exc
 
+        except aiohttp.ClientConnectorCertificateError as exc:
+            raise PMGConnectionError(
+                f"SSL certificate validation failed for {self._base_url}. "
+                "Disable 'Verify SSL' in integration settings if using a self-signed certificate."
+            ) from exc
         except aiohttp.ClientConnectorError as exc:
             raise PMGConnectionError(f"Cannot connect to PMG at {self._base_url}: {exc}") from exc
         except (TimeoutError, aiohttp.ServerTimeoutError) as exc:
-            raise PMGConnectionError("PMG login request timed out") from exc
+            raise PMGConnectionError(
+                f"PMG login request to {self._base_url} timed out ({self._timeout}s)"
+            ) from exc
 
         payload: dict[str, Any] = body.get("data") or {}
         ticket = payload.get("ticket")

@@ -596,4 +596,4 @@ class TestFullIntegrationFlow:
         # Unload
         unload_ok = await async_unload_entry(hass, config_entry)
         assert unload_ok is True
-        assert config_entry.entry_id not in hass.data[DOMAIN]
+        assert DOMAIN not in hass.data

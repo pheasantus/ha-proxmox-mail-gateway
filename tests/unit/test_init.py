@@ -101,7 +101,7 @@ class TestSetupAndUnloadEntry:
         result = await async_unload_entry(hass, mock_entry)
 
         assert result is True
-        assert mock_entry.entry_id not in hass.data[DOMAIN]
+        assert DOMAIN not in hass.data
 
     async def test_async_unload_entry_failure(
         self, hass: HomeAssistant, mock_entry: MagicMock

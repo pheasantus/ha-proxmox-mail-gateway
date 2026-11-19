@@ -399,3 +399,20 @@ class TestAsyncPerformAction:
         await coord.async_perform_action("MSG001", "delete")
 
         assert refresh_called is True
+
+    async def test_perform_action_optimistic_removal_and_decrement(self) -> None:
+        """Acting on a message optimistically removes it and decrements count."""
+        api = _make_api()
+        coord = _make_coordinator(api=api)
+        msg1 = _make_message("MSG001")
+        msg2 = _make_message("MSG002")
+        coord.data = PMGData(status=_make_status(count=2), messages=[msg1, msg2])
+        coord._known_mail_ids = {"MSG001", "MSG002"}
+        coord.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
+
+        await coord.async_perform_action("MSG001", "delete")
+
+        assert len(coord.data.messages) == 1
+        assert coord.data.messages[0].id == "MSG002"
+        assert coord.data.status.count == 1
+        assert "MSG001" not in coord._known_mail_ids

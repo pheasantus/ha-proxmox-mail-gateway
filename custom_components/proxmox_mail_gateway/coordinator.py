@@ -154,4 +154,17 @@ class PMGDataUpdateCoordinator(DataUpdateCoordinator[PMGData]):
             action:  One of ``deliver``, ``delete``, ``whitelist``, ``blacklist``.
         """
         await self.api.perform_action(mail_id, action)
+        # Immediate optimistic removal of the acted-upon IDs so UI updates right away
+        acted_ids = set(mail_id.split(";"))
+        if self.data:
+            if self.data.messages:
+                removed_count = sum(1 for m in self.data.messages if m.id in acted_ids)
+                self.data.messages = [m for m in self.data.messages if m.id not in acted_ids]
+                self._known_mail_ids -= acted_ids
+                if self.data.status:
+                    self.data.status.count = max(
+                        0, self.data.status.count - (removed_count or len(acted_ids))
+                    )
+            elif self.data.status:
+                self.data.status.count = max(0, self.data.status.count - len(acted_ids))
         await self.async_request_refresh()

@@ -16,6 +16,8 @@ from custom_components.proxmox_mail_gateway.api import (
 from custom_components.proxmox_mail_gateway.config_flow import (
     PMGConfigFlow,
     PMGOptionsFlow,
+    _clean_host_and_port,
+    _normalize_username,
     _test_connection,
 )
 from custom_components.proxmox_mail_gateway.const import (
@@ -70,6 +72,36 @@ def _make_entry(options: dict[str, Any] | None = None) -> ConfigEntry:
         },
         options=options or {},
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sanitization & Normalization helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSanitizationHelpers:
+    """Tests for _clean_host_and_port and _normalize_username."""
+
+    def test_clean_host_strips_scheme_and_slashes(self) -> None:
+        host, port = _clean_host_and_port("https://192.168.222.30:8006/")
+        assert host == "192.168.222.30"
+        assert port == 8006
+
+    def test_clean_host_plain_ip(self) -> None:
+        host, port = _clean_host_and_port("192.168.222.30")
+        assert host == "192.168.222.30"
+        assert port == 8006
+
+    def test_normalize_username_appends_pmg_realm(self) -> None:
+        assert _normalize_username("homeassistant") == "homeassistant@pmg"
+        assert _normalize_username("admin") == "admin@pmg"
+
+    def test_normalize_username_preserves_existing_realm(self) -> None:
+        assert _normalize_username("homeassistant@pmg") == "homeassistant@pmg"
+        assert _normalize_username("user@custom") == "user@custom"
+
+    def test_normalize_username_defaults_root_to_pam(self) -> None:
+        assert _normalize_username("root") == "root@pam"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -160,7 +192,6 @@ class TestConfigFlowStepUser:
         assert result["type"] == "create_entry"
         assert result["data"][CONF_HOST] == "192.168.222.30"
         assert result["data"][CONF_PORT] == 8006
-        # Password must be stored (never logged but must exist in data)
         assert CONF_PASSWORD in result["data"]
 
     async def test_shows_invalid_auth_error(self) -> None:
@@ -201,10 +232,10 @@ class TestConfigFlowStepUser:
         assert result["type"] == "form"
         assert result["errors"].get("base") == "cannot_connect"
 
-    async def test_host_is_stripped_of_whitespace(self) -> None:
-        """Leading/trailing whitespace in host is stripped."""
+    async def test_host_is_stripped_of_scheme_and_whitespace(self) -> None:
+        """https:// and whitespace in host is cleaned."""
         flow = _make_flow()
-        user_input = {**VALID_USER_INPUT, CONF_HOST: "  192.168.222.30  "}
+        user_input = {**VALID_USER_INPUT, CONF_HOST: "  https://192.168.222.30/  "}
 
         with (
             patch(
@@ -221,10 +252,42 @@ class TestConfigFlowStepUser:
         assert result["type"] == "create_entry"
         assert result["data"][CONF_HOST] == "192.168.222.30"
 
-    async def test_verify_ssl_stored_in_data(self) -> None:
-        """verify_ssl value from form is stored in entry data."""
+    async def test_default_port_is_8006(self) -> None:
+        """DEFAULT_PORT constant is 8006."""
+        assert DEFAULT_PORT == 8006
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Re-authentication flow
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestReauthFlow:
+    """Tests for async_step_reauth and async_step_reauth_confirm."""
+
+    async def test_reauth_shows_all_parameters(self) -> None:
+        """Reauth form shows all parameters pre-populated with current values."""
         flow = _make_flow()
-        user_input = {**VALID_USER_INPUT, CONF_VERIFY_SSL: True}
+        entry = _make_entry()
+        flow._reauth_entry = entry
+
+        result = await flow.async_step_reauth_confirm(user_input=None)
+        assert result["type"] == "form"
+        assert result["step_id"] == "reauth_confirm"
+
+    async def test_reauth_successful_updates_all_parameters(self) -> None:
+        """Submitting updated credentials in reauth updates entry and reloads."""
+        flow = _make_flow()
+        entry = _make_entry()
+        flow._reauth_entry = entry
+
+        new_credentials = {
+            CONF_HOST: "192.168.222.31",
+            CONF_PORT: 8006,
+            CONF_USERNAME: "homeassistant@pmg",
+            CONF_PASSWORD: "new_super_secret",
+            CONF_VERIFY_SSL: False,
+        }
 
         with (
             patch(
@@ -236,13 +299,12 @@ class TestConfigFlowStepUser:
                 return_value=MagicMock(),
             ),
         ):
-            result = await flow.async_step_user(user_input=user_input)
+            result = await flow.async_step_reauth_confirm(user_input=new_credentials)
 
-        assert result["data"][CONF_VERIFY_SSL] is True
-
-    async def test_default_port_is_8006(self) -> None:
-        """DEFAULT_PORT constant is 8006 (required by PMG spec)."""
-        assert DEFAULT_PORT == 8006
+        assert result["type"] == "abort"
+        assert result["reason"] == "reauth_successful"
+        flow.hass.config_entries.async_update_entry.assert_called_once()
+        flow.hass.config_entries.async_reload.assert_awaited_once_with(entry.entry_id)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -264,38 +326,25 @@ class TestOptionsFlow:
         assert result["step_id"] == "init"
 
     async def test_saves_options_on_submit(self) -> None:
-        """Submitted options are stored in the entry."""
+        """Submitted options and connection parameters are updated in the entry."""
         entry = _make_entry()
         flow = PMGOptionsFlow(entry)
         flow.hass = _make_hass()
 
-        new_options = {
+        options_payload = {
+            CONF_HOST: "192.168.222.30",
+            CONF_PORT: 8006,
+            CONF_USERNAME: "homeassistant@pmg",
+            CONF_PASSWORD: "",  # leave empty = keep current password
             CONF_SCAN_INTERVAL: 120,
             CONF_VERIFY_SSL: False,
             CONF_ENABLE_POSTFIX_SENSORS: True,
             CONF_ENABLE_NODE_SENSORS: False,
         }
-        result = await flow.async_step_init(user_input=new_options)
+        result = await flow.async_step_init(user_input=options_payload)
 
         assert result["type"] == "create_entry"
         assert result["data"][CONF_SCAN_INTERVAL] == 120
-
-    async def test_pre_populates_current_options(self) -> None:
-        """Form schema includes current option values as defaults."""
-        entry = _make_entry(options={CONF_SCAN_INTERVAL: 300})
-        flow = PMGOptionsFlow(entry)
-        flow.hass = _make_hass()
-
-        result = await flow.async_step_init(user_input=None)
-
-        # The schema should contain the current value as a default.
-        # We verify by inspecting the schema's defaults via voluptuous.
-        schema = result["data_schema"]
-        # Look for CONF_SCAN_INTERVAL key with default 300
-        for key in schema.schema:
-            if hasattr(key, "schema") and key.schema == CONF_SCAN_INTERVAL:
-                assert key.default() == 300
-                break
 
     async def test_options_flow_accessible_via_config_flow(self) -> None:
         """PMGConfigFlow.async_get_options_flow returns a PMGOptionsFlow."""

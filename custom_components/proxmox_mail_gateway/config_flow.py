@@ -1,17 +1,9 @@
-"""Config flow and options flow for Proxmox Mail Gateway.
+"""Config flow for Proxmox Mail Gateway integration.
 
-Provides a UI-driven setup wizard that:
-1. Collects host / port / credentials / TLS preference.
-2. Validates the connection by attempting a live PMG login.
-3. Persists credentials in the config entry's ``data`` store.
-4. Exposes an OptionsFlow for tuning scan interval and optional sensors.
-
-Security notes
---------------
-* The password field uses ``vol.Required`` without logging the value.
-* Connection test results are displayed only as generic error codes
-  (``cannot_connect``, ``invalid_auth``) — no internal details are exposed.
-* Re-authentication flow is supported via ``async_step_reauth``.
+Supports:
+- Initial discovery & setup (``async_step_user``)
+- Re-authentication with full credential editing (``async_step_reauth_confirm``)
+- Comprehensive options flow with connection & sensor configuration (``PMGOptionsFlow``)
 """
 
 from __future__ import annotations
@@ -19,7 +11,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
@@ -49,6 +40,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _clean_host_and_port(host_input: str, port_input: int = DEFAULT_PORT) -> tuple[str, int]:
+    """Clean host string, stripping http(s):// scheme, trailing slashes, and embedded port."""
+    cleaned = host_input.strip()
+    cleaned = cleaned.removeprefix("https://").removeprefix("http://").rstrip("/")
+    if ":" in cleaned:
+        host_part, _, port_part = cleaned.partition(":")
+        cleaned = host_part
+        if port_part.isdigit():
+            port_input = int(port_part)
+    return cleaned, port_input
+
+
+def _normalize_username(username_input: str) -> str:
+    """Ensure username has a realm suffix (@pmg or @pam); default to @pmg."""
+    user = username_input.strip()
+    if "@" not in user:
+        return f"{user}@pam" if user == "root" else f"{user}@pmg"
+    return user
+
+
 # ── Form schemas ───────────────────────────────────────────────────────────────
 
 _USER_SCHEMA = vol.Schema(
@@ -57,22 +69,14 @@ _USER_SCHEMA = vol.Schema(
         vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=65535)
         ),
-        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_USERNAME, default="homeassistant@pmg"): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
     }
 )
 
-_OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
-            vol.Coerce(int), vol.Range(min=10, max=3600)
-        ),
-        vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
-        vol.Optional(CONF_ENABLE_POSTFIX_SENSORS, default=DEFAULT_ENABLE_POSTFIX_SENSORS): bool,
-        vol.Optional(CONF_ENABLE_NODE_SENSORS, default=DEFAULT_ENABLE_NODE_SENSORS): bool,
-    }
-)
+
+# ── Helper: connection tester ──────────────────────────────────────────────────
 
 
 async def _test_connection(
@@ -81,22 +85,9 @@ async def _test_connection(
     username: str,
     password: str,
     verify_ssl: bool,
-    session: aiohttp.ClientSession,
+    session: Any,
 ) -> str | None:
-    """Attempt a PMG login and return an error key on failure, or ``None`` on success.
-
-    Args:
-        host:       PMG hostname or IP.
-        port:       PMG API port.
-        username:   PMG username.
-        password:   PMG password (never logged).
-        verify_ssl: Whether to verify TLS certificates.
-        session:    aiohttp session to reuse.
-
-    Returns:
-        ``None`` on success, or one of ``"cannot_connect"`` / ``"invalid_auth"`` /
-        ``"unknown"`` on failure.
-    """
+    """Attempt a PMG login and return an error key on failure, or ``None`` on success."""
     client = PMGApiClient(
         host=host,
         port=port,
@@ -107,22 +98,25 @@ async def _test_connection(
     )
     try:
         await client.login()
-    except PMGAuthError:
+    except PMGAuthError as exc:
+        _LOGGER.warning("PMG authentication failed for user '%s': %s", username, exc)
         return "invalid_auth"
-    except PMGConnectionError:
+    except PMGConnectionError as exc:
+        _LOGGER.warning(
+            "PMG connection failed to %s:%s (verify_ssl=%s): %s", host, port, verify_ssl, exc
+        )
         return "cannot_connect"
-    except PMGError:
+    except PMGError as exc:
+        _LOGGER.warning("PMG error during connection test: %s", exc)
+        return "unknown"
+    except Exception as exc:
+        _LOGGER.exception("PMG unexpected exception during connection test: %s", exc)
         return "unknown"
     return None
 
 
 class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Proxmox Mail Gateway.
-
-    Implements:
-    - ``step_user``:  Initial setup form.
-    - ``step_reauth_confirm``: Re-authentication after credential expiry.
-    """
+    """Handle a config flow for Proxmox Mail Gateway."""
 
     VERSION = 1
 
@@ -133,23 +127,14 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
     # ── Step: user (initial setup) ────────────────────────────────────────────
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Handle the initial user setup step.
-
-        Shows the connection form on first call; validates and creates the
-        config entry when *user_input* is provided.
-
-        Args:
-            user_input: Form data submitted by the user, or ``None`` to show the form.
-
-        Returns:
-            A :data:`~homeassistant.data_entry_flow.FlowResult` dict.
-        """
+        """Handle the initial user setup step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            host: str = user_input[CONF_HOST].strip()
-            port: int = int(user_input[CONF_PORT])
-            username: str = user_input[CONF_USERNAME].strip()
+            raw_host: str = user_input[CONF_HOST]
+            raw_port: int = int(user_input.get(CONF_PORT, DEFAULT_PORT))
+            host, port = _clean_host_and_port(raw_host, raw_port)
+            username: str = _normalize_username(user_input[CONF_USERNAME])
             password: str = user_input[CONF_PASSWORD]
             verify_ssl: bool = bool(user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
@@ -161,7 +146,9 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
             error_key = await _test_connection(host, port, username, password, verify_ssl, session)
 
             if error_key is None:
-                _LOGGER.info("PMG ConfigFlow: connection verified for host '%s'", host)
+                _LOGGER.info(
+                    "PMG ConfigFlow: connection verified for %s@%s:%s", username, host, port
+                )
                 return self.async_create_entry(
                     title=f"PMG {host}",
                     data={
@@ -183,11 +170,7 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
     # ── Step: re-auth ─────────────────────────────────────────────────────────
 
     async def async_step_reauth(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Initiate re-authentication.
-
-        Called automatically by HA when the integration raises
-        :class:`~homeassistant.exceptions.ConfigEntryAuthFailed`.
-        """
+        """Initiate re-authentication."""
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context.get("entry_id", "")
         )
@@ -196,40 +179,69 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the re-authentication form (password only).
-
-        Args:
-            user_input: New password submitted by the user, or ``None`` to show form.
-
-        Returns:
-            A :data:`~homeassistant.data_entry_flow.FlowResult`.
-        """
+        """Handle the re-authentication form with all connection fields editable."""
         errors: dict[str, str] = {}
+        entry = self._reauth_entry
+        current_data = entry.data if entry else {}
 
-        if user_input is not None and self._reauth_entry:
-            entry = self._reauth_entry
-            verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        if user_input is not None and entry:
+            raw_host: str = user_input.get(CONF_HOST, current_data.get(CONF_HOST, ""))
+            raw_port: int = int(
+                user_input.get(CONF_PORT, current_data.get(CONF_PORT, DEFAULT_PORT))
+            )
+            host, port = _clean_host_and_port(raw_host, raw_port)
+            username: str = _normalize_username(
+                user_input.get(CONF_USERNAME, current_data.get(CONF_USERNAME, ""))
+            )
+            password: str = user_input[CONF_PASSWORD]
+            verify_ssl: bool = bool(
+                user_input.get(
+                    CONF_VERIFY_SSL, current_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+                )
+            )
+
             session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
             error_key = await _test_connection(
-                host=entry.data[CONF_HOST],
-                port=entry.data[CONF_PORT],
-                username=entry.data[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
+                host=host,
+                port=port,
+                username=username,
+                password=password,
                 verify_ssl=verify_ssl,
                 session=session,
             )
             if error_key is None:
                 self.hass.config_entries.async_update_entry(
                     entry,
-                    data={**entry.data, CONF_PASSWORD: user_input[CONF_PASSWORD]},
+                    data={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_VERIFY_SSL: verify_ssl,
+                    },
                 )
                 await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reauth_successful")
             errors["base"] = error_key
 
+        reauth_schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST, default=current_data.get(CONF_HOST, "")): str,
+                vol.Required(CONF_PORT, default=current_data.get(CONF_PORT, DEFAULT_PORT)): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=65535)
+                ),
+                vol.Required(CONF_USERNAME, default=current_data.get(CONF_USERNAME, "")): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Optional(
+                    CONF_VERIFY_SSL,
+                    default=current_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+                ): bool,
+            }
+        )
+
         return self.async_show_form(
             step_id=STEP_REAUTH,
-            data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}),
+            data_schema=reauth_schema,
             errors=errors,
         )
 
@@ -238,66 +250,114 @@ class PMGConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> PMGOptionsFlow:
-        """Return the options flow handler for this integration.
-
-        Args:
-            config_entry: The active config entry to configure options for.
-
-        Returns:
-            A :class:`PMGOptionsFlow` instance.
-        """
+        """Return the options flow handler for this integration."""
         return PMGOptionsFlow(config_entry)
 
 
 class PMGOptionsFlow(OptionsFlow):
-    """Handle options configuration for an existing PMG config entry.
-
-    Allows the user to adjust:
-    - Scan interval (10–3600 s)
-    - TLS certificate verification
-    - Optional Postfix queue sensors
-    - Optional node metrics sensors
-    """
+    """Handle options and parameter configuration for an existing PMG config entry."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         super().__init__()
         self.config_entry: ConfigEntry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Handle the options form.
+        """Handle the options form allowing adjustment of parameters."""
+        errors: dict[str, str] = {}
+        entry = self.config_entry
+        current_data = entry.data
+        current_opts = entry.options
 
-        Args:
-            user_input: Submitted option values, or ``None`` to show the form.
-
-        Returns:
-            A :data:`~homeassistant.data_entry_flow.FlowResult`.
-        """
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            raw_host: str = user_input.get(CONF_HOST, current_data.get(CONF_HOST, ""))
+            raw_port: int = int(
+                user_input.get(CONF_PORT, current_data.get(CONF_PORT, DEFAULT_PORT))
+            )
+            host, port = _clean_host_and_port(raw_host, raw_port)
+            username: str = _normalize_username(
+                user_input.get(CONF_USERNAME, current_data.get(CONF_USERNAME, ""))
+            )
+            new_password: str = user_input.get(CONF_PASSWORD, "").strip()
+            password: str = new_password if new_password else current_data.get(CONF_PASSWORD, "")
+            verify_ssl: bool = bool(
+                user_input.get(
+                    CONF_VERIFY_SSL,
+                    current_opts.get(
+                        CONF_VERIFY_SSL, current_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+                    ),
+                )
+            )
 
-        # Pre-populate with current values or defaults.
-        current = self.config_entry.options
+            # Check if any connection-level parameter changed
+            conn_changed = (
+                host != current_data.get(CONF_HOST)
+                or port != current_data.get(CONF_PORT)
+                or username != current_data.get(CONF_USERNAME)
+                or bool(new_password)
+                or verify_ssl != current_data.get(CONF_VERIFY_SSL)
+            )
+
+            if conn_changed:
+                session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
+                error_key = await _test_connection(
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    verify_ssl=verify_ssl,
+                    session=session,
+                )
+                if error_key is not None:
+                    errors["base"] = error_key
+                else:
+                    new_data = {
+                        **current_data,
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_VERIFY_SSL: verify_ssl,
+                    }
+                    self.hass.config_entries.async_update_entry(entry, data=new_data)
+
+            if not errors:
+                options_data = {
+                    CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
+                    CONF_VERIFY_SSL: verify_ssl,
+                    CONF_ENABLE_POSTFIX_SENSORS: user_input[CONF_ENABLE_POSTFIX_SENSORS],
+                    CONF_ENABLE_NODE_SENSORS: user_input[CONF_ENABLE_NODE_SENSORS],
+                }
+                return self.async_create_entry(title="", data=options_data)
+
         schema = vol.Schema(
             {
-                vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=current.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                vol.Required(CONF_HOST, default=current_data.get(CONF_HOST, "")): str,
+                vol.Required(CONF_PORT, default=current_data.get(CONF_PORT, DEFAULT_PORT)): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=65535)
+                ),
+                vol.Required(CONF_USERNAME, default=current_data.get(CONF_USERNAME, "")): str,
+                vol.Optional(CONF_PASSWORD, default=""): str,
                 vol.Optional(
                     CONF_VERIFY_SSL,
-                    default=current.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+                    default=current_opts.get(
+                        CONF_VERIFY_SSL, current_data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+                    ),
                 ): bool,
                 vol.Optional(
+                    CONF_SCAN_INTERVAL,
+                    default=current_opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                vol.Optional(
                     CONF_ENABLE_POSTFIX_SENSORS,
-                    default=current.get(
+                    default=current_opts.get(
                         CONF_ENABLE_POSTFIX_SENSORS, DEFAULT_ENABLE_POSTFIX_SENSORS
                     ),
                 ): bool,
                 vol.Optional(
                     CONF_ENABLE_NODE_SENSORS,
-                    default=current.get(CONF_ENABLE_NODE_SENSORS, DEFAULT_ENABLE_NODE_SENSORS),
+                    default=current_opts.get(CONF_ENABLE_NODE_SENSORS, DEFAULT_ENABLE_NODE_SENSORS),
                 ): bool,
             }
         )
 
-        return self.async_show_form(step_id=STEP_OPTIONS, data_schema=schema)
+        return self.async_show_form(step_id=STEP_OPTIONS, data_schema=schema, errors=errors)
