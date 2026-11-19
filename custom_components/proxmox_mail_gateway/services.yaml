@@ -1,0 +1,71 @@
+deliver_mail:
+  name: Deliver mail from quarantine
+  description: >
+    Releases a quarantined message and delivers it to the recipient's mailbox.
+    The message is removed from quarantine after delivery.
+  fields:
+    mail_id:
+      name: Mail ID
+      description: >
+        The unique identifier of the quarantined message (e.g. C0R17T196878491).
+        Multiple IDs can be separated by semicolons for batch processing.
+      required: true
+      example: "C0R17T196878491"
+      selector:
+        text:
+
+delete_mail:
+  name: Delete mail from quarantine
+  description: >
+    Permanently deletes a quarantined message. This action cannot be undone.
+  fields:
+    mail_id:
+      name: Mail ID
+      description: Unique identifier of the quarantined message.
+      required: true
+      example: "C0R17T196878491"
+      selector:
+        text:
+
+whitelist_mail:
+  name: Whitelist sender and deliver
+  description: >
+    Adds the message sender to the recipient's whitelist and immediately
+    delivers the message to the recipient's mailbox.
+  fields:
+    mail_id:
+      name: Mail ID
+      description: Unique identifier of the quarantined message.
+      required: true
+      example: "C0R17T196878491"
+      selector:
+        text:
+
+quarantine_action:
+  name: Quarantine action
+  description: >
+    Performs a named action on a quarantined message.
+    Use this for automations that need to choose the action dynamically.
+  fields:
+    mail_id:
+      name: Mail ID
+      description: >
+        Unique identifier of the quarantined message.
+        Multiple IDs can be separated by semicolons.
+      required: true
+      example: "C0R17T196878491"
+      selector:
+        text:
+    action:
+      name: Action
+      description: >
+        Action to perform. One of: deliver, delete, whitelist, blacklist.
+      required: true
+      example: "deliver"
+      selector:
+        select:
+          options:
+            - "deliver"
+            - "delete"
+            - "whitelist"
+            - "blacklist"

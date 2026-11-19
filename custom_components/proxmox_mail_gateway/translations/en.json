@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Proxmox Mail Gateway",
+        "description": "Enter the connection details for your PMG instance. The integration will verify the connection before saving.",
+        "data": {
+          "host": "Host or IP address",
+          "port": "API port",
+          "username": "Username (e.g. homeassistant@pmg)",
+          "password": "Password",
+          "verify_ssl": "Verify TLS certificate"
+        },
+        "data_description": {
+          "verify_ssl": "Disable for PMG instances using a self-signed certificate (default for new PMG installations)."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with Proxmox Mail Gateway",
+        "description": "The PMG integration needs your password to re-authenticate.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to PMG. Check the host, port, and network connectivity.",
+      "invalid_auth": "Invalid credentials. Verify the username and password.",
+      "unknown": "An unexpected error occurred. Check the HA logs for details."
+    },
+    "abort": {
+      "already_configured": "This PMG instance is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Proxmox Mail Gateway Options",
+        "data": {
+          "scan_interval": "Scan interval (seconds)",
+          "verify_ssl": "Verify TLS certificate",
+          "enable_postfix_sensors": "Enable Postfix queue sensors",
+          "enable_node_sensors": "Enable node metrics sensors (CPU, memory)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll PMG for new quarantine data. Minimum: 10 s, maximum: 3600 s.",
+          "enable_postfix_sensors": "Creates sensors for active, deferred, and incoming Postfix queue depths.",
+          "enable_node_sensors": "Creates a sensor for the PMG node's CPU utilisation."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "quarantine_count": {
+        "name": "Quarantine count"
+      },
+      "avg_spam_score": {
+        "name": "Average spam score"
+      },
+      "postfix_active": {
+        "name": "Postfix active queue"
+      },
+      "postfix_deferred": {
+        "name": "Postfix deferred queue"
+      },
+      "postfix_incoming": {
+        "name": "Postfix incoming queue"
+      },
+      "node_cpu": {
+        "name": "Node CPU usage"
+      }
+    }
+  }
+}

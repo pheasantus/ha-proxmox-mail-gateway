@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz z Proxmox Mail Gateway",
+        "description": "Wprowadź dane połączenia do instancji PMG. Integracja zweryfikuje połączenie przed zapisaniem.",
+        "data": {
+          "host": "Host lub adres IP",
+          "port": "Port API",
+          "username": "Nazwa użytkownika (np. homeassistant@pmg)",
+          "password": "Hasło",
+          "verify_ssl": "Weryfikuj certyfikat TLS"
+        },
+        "data_description": {
+          "verify_ssl": "Wyłącz dla instancji PMG używających certyfikatu samopodpisanego (domyślne w nowych instalacjach PMG)."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ponowne uwierzytelnienie z Proxmox Mail Gateway",
+        "description": "Integracja PMG wymaga hasła do ponownego uwierzytelnienia.",
+        "data": {
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z PMG. Sprawdź host, port i łączność sieciową.",
+      "invalid_auth": "Nieprawidłowe dane logowania. Sprawdź nazwę użytkownika i hasło.",
+      "unknown": "Wystąpił nieoczekiwany błąd. Sprawdź logi HA."
+    },
+    "abort": {
+      "already_configured": "Ta instancja PMG jest już skonfigurowana.",
+      "reauth_successful": "Ponowne uwierzytelnienie zakończyło się sukcesem."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje Proxmox Mail Gateway",
+        "data": {
+          "scan_interval": "Interwał odświeżania (sekundy)",
+          "verify_ssl": "Weryfikuj certyfikat TLS",
+          "enable_postfix_sensors": "Włącz sensory kolejek Postfix",
+          "enable_node_sensors": "Włącz sensory metryk węzła (CPU, pamięć)"
+        },
+        "data_description": {
+          "scan_interval": "Jak często odpytywać PMG o nowe dane kwarantanny. Minimum: 10 s, maksimum: 3600 s.",
+          "enable_postfix_sensors": "Tworzy sensory dla aktywnych, odroczonych i przychodzących kolejek Postfix.",
+          "enable_node_sensors": "Tworzy sensor dla użycia CPU węzła PMG."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "quarantine_count": {
+        "name": "Liczba wiadomości w kwarantannie"
+      },
+      "avg_spam_score": {
+        "name": "Średni wynik spam"
+      },
+      "postfix_active": {
+        "name": "Aktywna kolejka Postfix"
+      },
+      "postfix_deferred": {
+        "name": "Kolejka odroczona Postfix"
+      },
+      "postfix_incoming": {
+        "name": "Kolejka przychodząca Postfix"
+      },
+      "node_cpu": {
+        "name": "Użycie CPU węzła"
+      }
+    }
+  }
+}

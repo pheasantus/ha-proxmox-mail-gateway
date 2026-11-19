@@ -1,0 +1,12 @@
+{
+  "domain": "proxmox_mail_gateway",
+  "name": "Proxmox Mail Gateway",
+  "codeowners": ["@pheasantus"],
+  "config_flow": true,
+  "documentation": "https://github.com/pheasantus/ha-proxmox-mail-gateway",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/pheasantus/ha-proxmox-mail-gateway/issues",
+  "requirements": ["aiohttp>=3.9.0"],
+  "version": "1.0.0"
+}

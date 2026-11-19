@@ -1,0 +1,87 @@
+[project]
+name = "ha-proxmox-mail-gateway"
+version = "1.0.0"
+description = "Home Assistant HACS integration for Proxmox Mail Gateway quarantine monitoring"
+requires-python = ">=3.12"
+dependencies = ["aiohttp>=3.9.0", "voluptuous>=0.14.0"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "aioresponses>=0.7.6",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "bandit[toml]>=1.7",
+]
+
+# ── pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode      = "auto"
+testpaths         = ["tests"]
+pythonpath        = ["tests/stubs", "."]
+log_cli           = true
+log_cli_level     = "WARNING"
+# Never echo passwords / tokens in test output:
+log_format        = "%(levelname)s %(name)s %(message)s"
+
+# ── ruff ──────────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length    = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations (type hints)
+    "S",   # flake8-bandit (security)
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "PLC", # pylint convention
+    "PLE", # pylint error
+    "PLW", # pylint warning
+    "RUF", # Ruff-specific rules
+]
+ignore = [
+    "ANN401",  # Dynamically typed expressions (Any) are disallowed
+    "S101",    # Use of assert in test files is fine
+    "S105",    # Possible hardcoded password — false positives in tests
+    "S106",    # Same as S105
+    "RUF002",  # Ambiguous EN DASH in docstrings — intentional style
+    "RUF003",  # Ambiguous EN DASH in comments — intentional style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S", "PLW0603", "SIM117", "PLC0415", "N818", "UP042", "UP046"]
+
+# ── mypy ──────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version         = "3.12"
+strict                 = true
+warn_return_any        = true
+warn_unused_ignores    = true
+disallow_any_generics  = false
+ignore_missing_imports = true  # aioresponses has no stubs
+explicit_package_bases = true
+mypy_path              = ["tests/stubs", "."]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+strict                = false
+
+# ── bandit ────────────────────────────────────────────────────────────────────
+[tool.bandit]
+targets    = ["custom_components"]
+exclude_dirs = ["tests", ".venv"]
+skips      = [
+    "B101",  # assert_used — OK in tests
+    "B104",  # binding to 0.0.0.0 — not applicable
+    "B105",  # hardcoded_password_string — false positives on HA config key names
+]
