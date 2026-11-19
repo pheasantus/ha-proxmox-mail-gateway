@@ -26,3 +26,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# SSH keys & local credentials
+.ssh_key/
+id_ed25519*
+id_rsa*
