@@ -269,20 +269,23 @@ class PMGApiClient:
         url = f"{self._base_url}{path}"
         timeout = aiohttp.ClientTimeout(total=self._timeout)
 
-        # CSRF token is mandatory for state-changing requests.
+        # In aiohttp, passing cookies via `cookies={...}` causes the default CookieJar
+        # to silently reject/strip cookies when communicating with raw IP addresses
+        # (RFC 6265 strict IP check). We inject PMGAuthCookie directly into headers.
         headers: dict[str, str] = {}
+        if self._ticket:
+            headers["Cookie"] = f"PMGAuthCookie={self._ticket}"
+
+        # CSRF token is mandatory for state-changing requests.
         if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
             # _ensure_auth() guarantees _csrf is not None at this point.
             headers["CSRFPreventionToken"] = self._csrf  # type: ignore[assignment]
-
-        cookies: dict[str, str] = {"PMGAuthCookie": self._ticket or ""}
 
         try:
             async with self._session.request(
                 method,
                 url,
                 headers=headers,
-                cookies=cookies,
                 params=params,
                 data=data,
                 ssl=self._ssl,

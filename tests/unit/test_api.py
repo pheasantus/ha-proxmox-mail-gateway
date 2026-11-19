@@ -263,6 +263,26 @@ class TestGetSpamStatus:
             with pytest.raises(PMGServerError):
                 await authenticated_client.get_spam_status()
 
+    async def test_cookie_header_injected_directly(
+        self, authenticated_client: PMGApiClient
+    ) -> None:
+        """PMGAuthCookie is injected as a raw Cookie header rather than aiohttp cookies."""
+        captured_kwargs: dict[str, Any] = {}
+
+        async def _capture_request(method: str, url: str, **kwargs: Any) -> _FakeResponse:
+            nonlocal captured_kwargs
+            captured_kwargs = kwargs
+            return _make_fake(payload=MOCK_SPAM_STATUS_RESPONSE)
+
+        with patch.object(
+            authenticated_client._session, "_request", AsyncMock(side_effect=_capture_request)
+        ):
+            await authenticated_client.get_spam_status()
+
+        headers = captured_kwargs.get("headers", {})
+        assert headers.get("Cookie") == f"PMGAuthCookie={MOCK_TICKET}"
+        assert "cookies" not in captured_kwargs
+
 
 class TestGetSpamUsers:
     """Tests for PMGApiClient.get_spam_users()."""
