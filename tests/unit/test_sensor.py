@@ -160,12 +160,10 @@ class TestQuarantineCountSensor:
         assert sensor._attr_unique_id is not None
         assert "my-entry-id" in sensor._attr_unique_id
 
-    def test_state_class_is_measurement(self) -> None:
-        """State class is MEASUREMENT."""
-        from homeassistant.components.sensor import SensorStateClass
-
+    def test_state_class_is_none_for_attributes_dialog(self) -> None:
+        """State class is None so clicking displays attributes dialog instead of history graph."""
         sensor = PMGQuarantineCountSensor(_make_coordinator(), _make_entry())
-        assert sensor._attr_state_class == SensorStateClass.MEASUREMENT
+        assert sensor._attr_state_class is None
 
     def test_device_info_has_correct_host(self) -> None:
         """device_info includes the configured PMG host."""

@@ -6,7 +6,9 @@ import time
 from collections.abc import AsyncGenerator
 
 import aiohttp
+import pytest
 import pytest_asyncio
+from homeassistant.core import HomeAssistant
 
 from custom_components.proxmox_mail_gateway.api import PMGApiClient
 
@@ -74,6 +76,12 @@ MOCK_POSTFIX_QUEUE_RESPONSE = {"data": {"active": 3, "deferred": 1, "incoming": 
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def hass() -> HomeAssistant:
+    """Return a fresh HomeAssistant instance."""
+    return HomeAssistant()
 
 
 @pytest_asyncio.fixture

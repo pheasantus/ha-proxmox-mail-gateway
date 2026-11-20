@@ -94,6 +94,31 @@
       "node_cpu": {
         "name": "Node CPU usage"
       }
+    },
+    "select": {
+      "quarantine_mail": {
+        "name": "Select quarantined email"
+      }
+    },
+    "button": {
+      "deliver_selected": {
+        "name": "Deliver selected email"
+      },
+      "delete_selected": {
+        "name": "Delete selected email"
+      },
+      "whitelist_selected": {
+        "name": "Whitelist and deliver selected email"
+      },
+      "deliver_all": {
+        "name": "Deliver all quarantined emails"
+      },
+      "delete_all": {
+        "name": "Delete all quarantined emails"
+      },
+      "refresh_quarantine": {
+        "name": "Refresh quarantine data"
+      }
     }
   }
 }

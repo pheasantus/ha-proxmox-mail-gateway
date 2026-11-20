@@ -357,28 +357,39 @@ class PMGApiClient:
             raise PMGServerError(f"Unexpected type for spamstatus response: {type(raw)}")
         return QuarantineStatus.from_api_response(raw)
 
-    async def get_spam_users(self) -> list[str]:
+    async def get_spam_users(self, starttime: int | None = None) -> list[str]:
         """Return a list of recipient e-mail addresses that have quarantined mail.
 
         Returns:
             List of e-mail strings (may be empty).
         """
-        raw = await self._request("GET", API_SPAM_USERS_PATH)
+        params: dict[str, str] = {}
+        if starttime is not None:
+            params["starttime"] = str(starttime)
+        raw = await self._request("GET", API_SPAM_USERS_PATH, params=params or None)
         if not isinstance(raw, list):
             _LOGGER.debug("get_spam_users: unexpected response type %s", type(raw))
             return []
         return [str(item["mail"]) for item in raw if isinstance(item, dict) and "mail" in item]
 
-    async def get_spam_messages(self, pmail: str) -> list[QuarantineMessage]:
-        """Fetch quarantined messages for a single recipient.
+    async def get_spam_messages(
+        self, pmail: str | None = None, starttime: int | None = None
+    ) -> list[QuarantineMessage]:
+        """Fetch quarantined messages, optionally for a specific recipient.
 
         Args:
-            pmail: Recipient e-mail address.
+            pmail: Recipient e-mail address (optional). If None, PMG returns all recipients.
+            starttime: Filter messages created on or after this epoch timestamp.
 
         Returns:
             List of :class:`.models.QuarantineMessage` objects (may be empty).
         """
-        raw = await self._request("GET", API_SPAM_LIST_PATH, params={"pmail": pmail})
+        params: dict[str, str] = {}
+        if pmail:
+            params["pmail"] = pmail
+        if starttime is not None:
+            params["starttime"] = str(starttime)
+        raw = await self._request("GET", API_SPAM_LIST_PATH, params=params or None)
         if not isinstance(raw, list):
             return []
 
@@ -393,21 +404,22 @@ class PMGApiClient:
                 _LOGGER.warning("Skipping malformed quarantine entry (%s)", type(exc).__name__)
         return messages
 
-    async def get_all_spam_messages(self) -> list[QuarantineMessage]:
-        """Fetch quarantined messages for **all** recipients concurrently.
+    async def get_all_spam_messages(self, starttime: int | None = None) -> list[QuarantineMessage]:
+        """Fetch quarantined messages for all recipients.
 
-        First queries ``/quarantine/spamusers`` to discover all mailboxes, then
-        gathers per-user message lists in parallel using :func:`asyncio.gather`.
+        Queries /quarantine/spamusers with a 30-day lookback window and fetches
+        quarantined messages for each discovered mailbox.
 
         Returns:
             All quarantine messages merged and sorted newest-first.
         """
-        users = await self.get_spam_users()
+        st = starttime if starttime is not None else int(time.time() - 30 * 86400)
+        users = await self.get_spam_users(starttime=st)
         if not users:
             return []
 
         results = await asyncio.gather(
-            *[self.get_spam_messages(email) for email in users],
+            *[self.get_spam_messages(email, starttime=st) for email in users],
             return_exceptions=True,
         )
 

@@ -63,6 +63,7 @@ class PMGDataUpdateCoordinator(DataUpdateCoordinator[PMGData]):
         self.entry: ConfigEntry = entry
         self._known_mail_ids: set[str] = set()
         self._first_run: bool = True
+        self.selected_mail_id: str | None = None
 
         scan_interval: int = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
 
@@ -138,6 +139,8 @@ class PMGDataUpdateCoordinator(DataUpdateCoordinator[PMGData]):
 
         self._first_run = False
         self._known_mail_ids = current_ids
+        if not self.selected_mail_id or self.selected_mail_id not in current_ids:
+            self.selected_mail_id = messages[0].id if messages else None
 
         return PMGData(status=status, messages=messages, queues=queues, node=node)
 
@@ -168,4 +171,9 @@ class PMGDataUpdateCoordinator(DataUpdateCoordinator[PMGData]):
                     )
             elif self.data.status:
                 self.data.status.count = max(0, self.data.status.count - len(acted_ids))
+        if self.selected_mail_id in acted_ids:
+            remaining = (
+                [m.id for m in self.data.messages if m.id not in acted_ids] if self.data else []
+            )
+            self.selected_mail_id = remaining[0] if remaining else None
         await self.async_request_refresh()

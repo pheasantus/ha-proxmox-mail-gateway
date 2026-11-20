@@ -32,7 +32,7 @@ from .coordinator import PMGDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.BUTTON]
 
 # ── Service schemas ────────────────────────────────────────────────────────────
 _MAIL_ID_SCHEMA = vol.Schema({vol.Required("mail_id"): cv.string})

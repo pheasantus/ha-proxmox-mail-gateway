@@ -94,6 +94,31 @@
       "node_cpu": {
         "name": "Użycie CPU węzła"
       }
+    },
+    "select": {
+      "quarantine_mail": {
+        "name": "Wybierz wiadomość z kwarantanny"
+      }
+    },
+    "button": {
+      "deliver_selected": {
+        "name": "Zwolnij wybraną wiadomość"
+      },
+      "delete_selected": {
+        "name": "Usuń wybraną wiadomość"
+      },
+      "whitelist_selected": {
+        "name": "Dodaj nadawcę do białej listy"
+      },
+      "deliver_all": {
+        "name": "Zwolnij wszystkie wiadomości"
+      },
+      "delete_all": {
+        "name": "Wyczyść całą kwarantannę"
+      },
+      "refresh_quarantine": {
+        "name": "Odśwież stan kwarantanny"
+      }
     }
   }
 }

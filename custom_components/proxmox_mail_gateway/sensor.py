@@ -113,7 +113,6 @@ class PMGQuarantineCountSensor(PMGBaseSensor):
         recipients       – unique list of recipient e-mail addresses
     """
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "messages"
     _attr_translation_key = "quarantine_count"
 

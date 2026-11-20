@@ -461,10 +461,12 @@ class TestGetAllSpamMessages:
         # Patch get_spam_messages to simulate partial failure
         original_get_spam = authenticated_client.get_spam_messages
 
-        async def patched_get_spam(pmail: str) -> list[QuarantineMessage]:
+        async def patched_get_spam(
+            pmail: str, *args: Any, **kwargs: Any
+        ) -> list[QuarantineMessage]:
             if pmail == "bad@example.com":
                 raise PMGServerError("simulated failure")
-            return await original_get_spam(pmail)
+            return await original_get_spam(pmail, *args, **kwargs)
 
         with patch.object(authenticated_client, "get_spam_messages", patched_get_spam):
             with mock_http(
