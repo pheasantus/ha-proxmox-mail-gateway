@@ -91,6 +91,9 @@ class _FakeResponse:
             raise json.JSONDecodeError("Expecting value", self._body, 0)
         return self._payload
 
+    async def text(self) -> str:
+        return self._body if self._body is not None else json.dumps(self._payload)
+
     def raise_for_status(self) -> None:
         if self.status >= 400:
             raise aiohttp.ClientResponseError(
@@ -430,6 +433,43 @@ class TestGetAllSpamMessages:
         with mock_http(authenticated_client, [{"payload": {"data": []}}]):
             messages = await authenticated_client.get_all_spam_messages()
         assert messages == []
+
+    async def test_passes_both_starttime_and_endtime_for_30_day_window(
+        self, authenticated_client: PMGApiClient
+    ) -> None:
+        """get_all_spam_messages passes both starttime and endtime covering a 30-day window."""
+        captured_params: list[dict[str, str] | None] = []
+
+        async def _capture_request(method: str, url: str, **kwargs: Any) -> _FakeResponse:
+            captured_params.append(kwargs.get("params"))
+            if "spamusers" in url:
+                return _make_fake(payload={"data": [{"mail": "user@example.com"}]})
+            return _make_fake(payload={"data": []})
+
+        with patch.object(
+            authenticated_client._session, "_request", AsyncMock(side_effect=_capture_request)
+        ):
+            await authenticated_client.get_all_spam_messages()
+
+        assert len(captured_params) == 2
+        for params in captured_params:
+            assert params is not None
+            assert "starttime" in params
+            assert "endtime" in params
+            assert int(params["endtime"]) - int(params["starttime"]) == 30 * 86400
+
+    async def test_http_400_raises_server_error_with_body(
+        self, authenticated_client: PMGApiClient
+    ) -> None:
+        """HTTP 400 returns PMGServerError containing the HTTP status and response text."""
+        with (
+            mock_http(
+                authenticated_client,
+                [{"status": 400, "body": "Parameter verification failed"}],
+            ),
+            pytest.raises(PMGServerError, match=r"HTTP 400.*Parameter verification failed"),
+        ):
+            await authenticated_client.get_spam_users(starttime=100, endtime=200)
 
     async def test_partial_failure_returns_successful_results(
         self, authenticated_client: PMGApiClient

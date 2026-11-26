@@ -45,6 +45,9 @@ class MockResponse:
             raise json.JSONDecodeError("Expecting value", self._body, 0)
         return self._payload
 
+    async def text(self) -> str:
+        return self._body if self._body is not None else json.dumps(self._payload)
+
     def raise_for_status(self) -> None:
         if self.status >= 400:
             raise aiohttp.ClientResponseError(

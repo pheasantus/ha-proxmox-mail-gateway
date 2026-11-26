@@ -323,7 +323,16 @@ class PMGApiClient:
                 if resp.status >= 500:
                     raise PMGServerError(f"Błąd wewnętrzny serwera PMG: HTTP {resp.status}")
 
-                resp.raise_for_status()
+                if resp.status >= 400:
+                    err_body = ""
+                    try:
+                        err_body = (await resp.text())[:300]
+                    except (aiohttp.ClientError, UnicodeDecodeError) as exc:
+                        _LOGGER.debug("Failed to read error response body: %s", exc)
+                    raise PMGServerError(
+                        f"PMG zwrócił błąd HTTP {resp.status} dla {method} {path}"
+                        + (f": {err_body}" if err_body else "")
+                    )
 
                 try:
                     body: dict[str, Any] = await resp.json(content_type=None)
@@ -357,8 +366,16 @@ class PMGApiClient:
             raise PMGServerError(f"Unexpected type for spamstatus response: {type(raw)}")
         return QuarantineStatus.from_api_response(raw)
 
-    async def get_spam_users(self, starttime: int | None = None) -> list[str]:
+    async def get_spam_users(
+        self,
+        starttime: int | None = None,
+        endtime: int | None = None,
+    ) -> list[str]:
         """Return a list of recipient e-mail addresses that have quarantined mail.
+
+        Args:
+            starttime: Filter messages created on or after this epoch timestamp.
+            endtime: Filter messages created before this epoch timestamp.
 
         Returns:
             List of e-mail strings (may be empty).
@@ -366,6 +383,8 @@ class PMGApiClient:
         params: dict[str, str] = {}
         if starttime is not None:
             params["starttime"] = str(starttime)
+        if endtime is not None:
+            params["endtime"] = str(endtime)
         raw = await self._request("GET", API_SPAM_USERS_PATH, params=params or None)
         if not isinstance(raw, list):
             _LOGGER.debug("get_spam_users: unexpected response type %s", type(raw))
@@ -373,13 +392,17 @@ class PMGApiClient:
         return [str(item["mail"]) for item in raw if isinstance(item, dict) and "mail" in item]
 
     async def get_spam_messages(
-        self, pmail: str | None = None, starttime: int | None = None
+        self,
+        pmail: str | None = None,
+        starttime: int | None = None,
+        endtime: int | None = None,
     ) -> list[QuarantineMessage]:
         """Fetch quarantined messages, optionally for a specific recipient.
 
         Args:
             pmail: Recipient e-mail address (optional). If None, PMG returns all recipients.
             starttime: Filter messages created on or after this epoch timestamp.
+            endtime: Filter messages created before this epoch timestamp.
 
         Returns:
             List of :class:`.models.QuarantineMessage` objects (may be empty).
@@ -389,6 +412,8 @@ class PMGApiClient:
             params["pmail"] = pmail
         if starttime is not None:
             params["starttime"] = str(starttime)
+        if endtime is not None:
+            params["endtime"] = str(endtime)
         raw = await self._request("GET", API_SPAM_LIST_PATH, params=params or None)
         if not isinstance(raw, list):
             return []
@@ -400,36 +425,47 @@ class PMGApiClient:
             try:
                 messages.append(QuarantineMessage.from_api_response(item))
             except (KeyError, ValueError, TypeError) as exc:
-                # Skip malformed entries; log type only (no PII payload).
-                _LOGGER.warning("Skipping malformed quarantine entry (%s)", type(exc).__name__)
+                _LOGGER.warning(
+                    "Skipping malformed quarantine entry (%s: %s)",
+                    type(exc).__name__,
+                    exc,
+                )
         return messages
 
-    async def get_all_spam_messages(self, starttime: int | None = None) -> list[QuarantineMessage]:
+    async def get_all_spam_messages(
+        self,
+        starttime: int | None = None,
+        endtime: int | None = None,
+    ) -> list[QuarantineMessage]:
         """Fetch quarantined messages for all recipients.
 
-        Queries /quarantine/spamusers with a 30-day lookback window and fetches
-        quarantined messages for each discovered mailbox.
+        Queries /quarantine/spamusers with a 30-day lookback window (passing both
+        starttime and endtime, because PMG defaults endtime to starttime + 86400)
+        and fetches quarantined messages for each discovered mailbox.
 
         Returns:
             All quarantine messages merged and sorted newest-first.
         """
-        st = starttime if starttime is not None else int(time.time() - 30 * 86400)
-        users = await self.get_spam_users(starttime=st)
+        now = int(time.time())
+        et = endtime if endtime is not None else now
+        st = starttime if starttime is not None else (et - 30 * 86400)
+        users = await self.get_spam_users(starttime=st, endtime=et)
         if not users:
             return []
 
         results = await asyncio.gather(
-            *[self.get_spam_messages(email, starttime=st) for email in users],
+            *[self.get_spam_messages(email, starttime=st, endtime=et) for email in users],
             return_exceptions=True,
         )
 
         messages: list[QuarantineMessage] = []
         for result in results:
             if isinstance(result, BaseException):
-                # Log error type only; never log per-user email addresses.
+                # Log error type and message; never log per-user email addresses.
                 _LOGGER.warning(
-                    "Failed to fetch quarantine messages: %s",
+                    "Failed to fetch quarantine messages (%s): %s",
                     type(result).__name__,
+                    result,
                 )
             else:
                 messages.extend(result)
